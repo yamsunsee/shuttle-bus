@@ -64,17 +64,25 @@ function App() {
   }, []);
 
   useEffect(() => {
+    const today = new Date();
+    const sheetName = today
+      .toLocaleDateString("en-GB", {
+        day: "2-digit",
+        month: "2-digit",
+        year: "numeric",
+      })
+      .replace(/\//g, "-");
+
     fetch(
-      "https://docs.google.com/spreadsheets/d/1nVdESerxIJt2wGWOOVJtHrU_0-ytdI57ZJhRLtzMMAk/export?format=csv&id=1nVdESerxIJt2wGWOOVJtHrU_0-ytdI57ZJhRLtzMMAk&gid=175980079"
+      `https://docs.google.com/spreadsheets/d/1nVdESerxIJt2wGWOOVJtHrU_0-ytdI57ZJhRLtzMMAk/gviz/tq?tqx=out:csv&sheet=${sheetName}`
     )
       .then((response) => response.text())
       .then((csv) => {
         const rows = csv.split("\n");
-        const dataRows = rows.slice(4, -1);
+        const dataRows = rows.slice(1, -1);
         const parsedData = dataRows.map((row) => {
-          const decoder = new TextDecoder("utf-8");
-          const decodedRow = decoder.decode(new TextEncoder().encode(row));
-          const values = decodedRow.split(",");
+          const values = row.replace(/["]/g, "").split(",");
+          console.log(values);
 
           return {
             index: values[0],
