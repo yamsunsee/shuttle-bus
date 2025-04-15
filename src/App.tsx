@@ -1,7 +1,22 @@
-import { useEffect, useState } from "react";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { X } from "lucide-react";
+import { useEffect, useState } from "react";
+import { cn } from "./lib/utils";
 
 type Item = {
   index: string;
@@ -15,6 +30,7 @@ const normalizeVietnamese = (str: string) => {
   return str
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[đĐ]/g, "d")
     .toLowerCase();
 };
 
@@ -32,6 +48,20 @@ function App() {
   const [timeFilter, setTimeFilter] = useState("all");
   const [stationFilters, setStationFilters] = useState<string[]>(["all"]);
   const [nameFilter, setNameFilter] = useState("");
+  const [selectedRows, setSelectedRows] = useState<Set<string>>(new Set());
+  const [doubleClickedRows, setDoubleClickedRows] = useState<Set<string>>(
+    new Set()
+  );
+  const [sortBy, setSortBy] = useState<"selected" | "unselected" | null>(null);
+  const [currentTime, setCurrentTime] = useState(new Date());
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setCurrentTime(new Date());
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, []);
 
   useEffect(() => {
     fetch(
@@ -76,16 +106,36 @@ function App() {
   const filteredData = data.filter((item) => {
     const matchesTime =
       timeFilter === "all" ||
-      (timeFilter === "morning" && Object.values(item.morningStations).some((v) => v)) ||
-      (timeFilter === "evening" && Object.values(item.eveningStations).some((v) => v));
+      (timeFilter === "morning" &&
+        Object.values(item.morningStations).some((v) => v)) ||
+      (timeFilter === "evening" &&
+        Object.values(item.eveningStations).some((v) => v));
 
     const matchesStation =
       stationFilters.includes("all") ||
-      stationFilters.some((station) => item.morningStations[station] || item.eveningStations[station]);
+      stationFilters.some(
+        (station) =>
+          item.morningStations[station] || item.eveningStations[station]
+      );
 
-    const matchesName = nameFilter === "" || normalizeVietnamese(item.name).includes(normalizeVietnamese(nameFilter));
+    const matchesName =
+      nameFilter === "" ||
+      normalizeVietnamese(item.name).includes(normalizeVietnamese(nameFilter));
 
     return matchesTime && matchesStation && matchesName;
+  });
+
+  const sortedData = [...filteredData].sort((a, b) => {
+    if (!sortBy) return 0;
+
+    const isASelected = selectedRows.has(a.id) || doubleClickedRows.has(a.id);
+    const isBSelected = selectedRows.has(b.id) || doubleClickedRows.has(b.id);
+
+    if (sortBy === "selected") {
+      return isBSelected ? 1 : isASelected ? -1 : 0;
+    } else {
+      return isASelected ? 1 : isBSelected ? -1 : 0;
+    }
   });
 
   const handleStationChange = (value: string) => {
@@ -94,117 +144,216 @@ function App() {
     } else {
       const newFilters = stationFilters.filter((f) => f !== "all");
       if (newFilters.includes(value)) {
-        setStationFilters(newFilters.filter((f) => f !== value));
+        if (newFilters.length === 1) {
+          setStationFilters(["all"]);
+        } else {
+          setStationFilters(newFilters.filter((f) => f !== value));
+        }
       } else {
         setStationFilters([...newFilters, value]);
       }
     }
   };
 
-  const showBothColumns = timeFilter === "all" && stationFilters.includes("all");
+  const toggleRowSelection = (id: string) => {
+    const newSelected = new Set(selectedRows);
+    const newDoubleClicked = new Set(doubleClickedRows);
+
+    if (newDoubleClicked.has(id)) {
+      newDoubleClicked.delete(id);
+      newSelected.delete(id);
+    } else if (newSelected.has(id)) {
+      newSelected.delete(id);
+      newDoubleClicked.add(id);
+    } else {
+      newSelected.add(id);
+    }
+
+    setSelectedRows(newSelected);
+    setDoubleClickedRows(newDoubleClicked);
+  };
+
+  const showBothColumns =
+    timeFilter === "all" && stationFilters.includes("all");
 
   return (
-    <div className="p-4 space-y-4 overflow-y-auto h-screen">
-      <div className="flex flex-col gap-4 items-center">
-        <Input placeholder="Tìm kiếm theo tên..." value={nameFilter} onChange={(e) => setNameFilter(e.target.value)} />
-        <Select value={timeFilter} onValueChange={setTimeFilter}>
-          <SelectTrigger className="w-full">
-            <SelectValue placeholder="Chọn thời gian" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">Tất cả ca</SelectItem>
-            <SelectItem value="morning">Lên ca</SelectItem>
-            <SelectItem value="evening">Xuống ca</SelectItem>
-          </SelectContent>
-        </Select>
-        <div className="flex flex-wrap gap-2 justify-center">
+    <div className="flex flex-col gap-2 p-4">
+      <div className="flex items-center justify-between text-sm text-gray-500 whitespace-nowrap">
+        <div>
+          {currentTime.toLocaleDateString("vi-VN", {
+            weekday: "long",
+            day: "numeric",
+            month: "long",
+            year: "numeric",
+          })}
+        </div>
+        <div>
+          {currentTime.toLocaleTimeString("vi-VN", {
+            hour: "2-digit",
+            minute: "2-digit",
+            second: "2-digit",
+          })}
+        </div>
+      </div>
+      <div className="relative">
+        <Input
+          placeholder="Tìm kiếm theo tên..."
+          value={nameFilter}
+          onChange={(e) => setNameFilter(e.target.value)}
+          className="text-sm pr-8"
+        />
+        {nameFilter && (
           <button
-            onClick={() => handleStationChange("all")}
-            className={`px-3 py-1 rounded ${stationFilters.includes("all") ? "bg-blue-500 text-white" : "bg-gray-200"}`}
+            onClick={() => setNameFilter("")}
+            className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700"
           >
-            Tất cả trạm
+            <X className="size-4" />
           </button>
+        )}
+      </div>
+      <Select value={timeFilter} onValueChange={setTimeFilter}>
+        <SelectTrigger className="w-full">
+          <SelectValue placeholder="Chọn thời gian" />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="all">Tất cả ca</SelectItem>
+          <SelectItem value="morning">Lên ca</SelectItem>
+          <SelectItem value="evening">Xuống ca</SelectItem>
+        </SelectContent>
+      </Select>
+      <div className="flex flex-col gap-2 w-full">
+        <button
+          onClick={() => handleStationChange("all")}
+          className={`text-sm px-3 py-2 rounded ${
+            stationFilters.includes("all")
+              ? "bg-blue-500 text-white"
+              : "bg-gray-200"
+          }`}
+        >
+          Tất cả trạm
+        </button>
+        <div className="grid grid-cols-2 gap-2 text-sm">
           {Object.entries(stationNames).map(([key, value]) => (
             <button
               key={key}
               onClick={() => handleStationChange(key)}
-              className={`px-3 py-1 rounded ${stationFilters.includes(key) ? "bg-blue-500 text-white" : "bg-gray-200"}`}
+              className={`px-3 py-2 rounded ${
+                stationFilters.includes(key)
+                  ? "bg-blue-500 text-white"
+                  : "bg-gray-200"
+              }`}
             >
               {value}
             </button>
           ))}
         </div>
-        <div className="text-sm text-gray-500">Tìm thấy {filteredData.length} kết quả</div>
       </div>
-      <div className="rounded-md overflow-hidden border">
+      <div className="text-sm text-gray-500 text-center flex justify-evenly">
+        <div>Tổng cộng {filteredData.length} người </div>
+        {(selectedRows.size > 0 || doubleClickedRows.size > 0) && (
+          <div
+            onClick={() => {
+              setSelectedRows(new Set());
+              setDoubleClickedRows(new Set());
+            }}
+            className="flex items-center gap-2"
+          >
+            Đã chọn {selectedRows.size + doubleClickedRows.size} người
+          </div>
+        )}
+      </div>
+      <div className="rounded-md overflow-auto border max-h-[calc(100dvh-22rem)] text-center">
         <Table>
-          <TableHeader className="bg-gray-100">
-            <TableRow>
-              <TableHead>Tên</TableHead>
+          <TableHeader className="bg-gray-100 sticky top-0">
+            <TableRow
+              onClick={() =>
+                setSortBy(sortBy === "unselected" ? "selected" : "unselected")
+              }
+            >
+              <TableHead
+                className={cn("text-center", showBothColumns && "border-r!")}
+              >
+                Tên
+              </TableHead>
               {showBothColumns && (
                 <>
-                  <TableHead>Trạm lên ca</TableHead>
-                  <TableHead>Trạm xuống ca</TableHead>
+                  <TableHead className="text-center border-r!">
+                    Trạm lên ca
+                  </TableHead>
+                  <TableHead className="text-center">Trạm xuống ca</TableHead>
                 </>
               )}
-              {!showBothColumns && timeFilter === "morning" && <TableHead>Trạm lên ca</TableHead>}
-              {!showBothColumns && timeFilter === "evening" && <TableHead>Trạm xuống ca</TableHead>}
             </TableRow>
           </TableHeader>
           <TableBody>
-            {filteredData.map((item) => (
-              <TableRow key={item.id}>
-                <TableCell>{item.name}</TableCell>
-                {showBothColumns && (
-                  <>
-                    <TableCell>
-                      {Object.entries(item.morningStations).map(
-                        ([station, value]) =>
-                          value && (
-                            <span key={station} className="mr-2">
-                              {stationNames[station as keyof typeof stationNames]}
-                            </span>
-                          )
-                      )}
-                    </TableCell>
-                    <TableCell>
-                      {Object.entries(item.eveningStations).map(
-                        ([station, value]) =>
-                          value && (
-                            <span key={station} className="mr-2">
-                              {stationNames[station as keyof typeof stationNames]}
-                            </span>
-                          )
-                      )}
-                    </TableCell>
-                  </>
-                )}
-                {!showBothColumns && timeFilter === "morning" && (
-                  <TableCell>
-                    {Object.entries(item.morningStations).map(
-                      ([station, value]) =>
-                        value && (
-                          <span key={station} className="mr-2">
-                            {stationNames[station as keyof typeof stationNames]}
-                          </span>
-                        )
+            {sortedData.length > 0 ? (
+              sortedData.map((item) => (
+                <TableRow
+                  key={item.id}
+                  onClick={() => toggleRowSelection(item.id)}
+                  className={cn(
+                    "cursor-pointer",
+                    selectedRows.has(item.id) && "bg-emerald-500 text-white",
+                    doubleClickedRows.has(item.id) && "bg-red-500 text-white"
+                  )}
+                >
+                  <TableCell
+                    className={cn(
+                      "text-center",
+                      showBothColumns && "border-r!"
                     )}
+                  >
+                    {item.name}
                   </TableCell>
-                )}
-                {!showBothColumns && timeFilter === "evening" && (
-                  <TableCell>
-                    {Object.entries(item.eveningStations).map(
-                      ([station, value]) =>
-                        value && (
-                          <span key={station} className="mr-2">
-                            {stationNames[station as keyof typeof stationNames]}
-                          </span>
-                        )
-                    )}
-                  </TableCell>
-                )}
+                  {showBothColumns && (
+                    <>
+                      <TableCell
+                        className={cn(
+                          "text-center",
+                          showBothColumns && "border-r!"
+                        )}
+                      >
+                        {Object.entries(item.morningStations).map(
+                          ([station, value]) =>
+                            value && (
+                              <span key={station} className="text-center">
+                                {
+                                  stationNames[
+                                    station as keyof typeof stationNames
+                                  ]
+                                }
+                              </span>
+                            )
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        {Object.entries(item.eveningStations).map(
+                          ([station, value]) =>
+                            value && (
+                              <span key={station} className="text-center">
+                                {
+                                  stationNames[
+                                    station as keyof typeof stationNames
+                                  ]
+                                }
+                              </span>
+                            )
+                        )}
+                      </TableCell>
+                    </>
+                  )}
+                </TableRow>
+              ))
+            ) : (
+              <TableRow>
+                <TableCell
+                  colSpan={showBothColumns ? 3 : 2}
+                  className="text-center text-muted-foreground"
+                >
+                  Không tìm thấy kết quả
+                </TableCell>
               </TableRow>
-            ))}
+            )}
           </TableBody>
         </Table>
       </div>
